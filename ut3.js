@@ -1,6 +1,7 @@
 //var io = require('socket.io');
-var io = require('./node_modules/node-socket.io-client/socket.io').io;
-var child = require('child_process');
+var util = require('util');
+var io = require('socket.io-client');
+var spawn = require('child_process').spawn;
 
 // ############################################################
 // Globals
@@ -9,12 +10,30 @@ var Config = {
 	host: "ec2-67-202-34-109.compute-1.amazonaws.com",
 	port: 9000,
 	home: "/home/ubuntu/ut3-dedicated/Binaries",
-	url: function(){ return "http://" + this.host + ":" + this.port; },
-	ut3: "/home/ubuntu/ut3-dedicated/ut3",
+	//url: function(){ return "http://" + this.host + ":" + this.port; },
+	url: function(){
+		return "ws://" + this.host + ":" + this.port; 
+	},
+	ut3: "ut3",
+	exe: function() {
+		return this.home + "/" + this.ut3 ;
+	},
 	arguments: [
 		"server",
 	],
 	level: 'DM-Heatray',
+	parameters: {
+		MinPlayers: 1,
+		password: "",
+	},
+	getParameters: function(){
+	  var final = this.level;
+	
+	  for(var p in this.parameters){
+	    final += "?" + p + "=" + this.parameters[p];
+	  }
+	  return final;
+	},
 	interval: 5000,
 }
 
@@ -24,10 +43,25 @@ var connected =false;
 // ############################################################
 // Callbacks
 // ############################################################
+function onUT3exit(code)
+{
+	console.log("UT3 server exited with code "+code);
+}
+
+function onUT3stdout(data)
+{
+	console.log("\tut3 out\t:" + data);
+}
+
+function onUT3stderr(data)
+{
+	console.log("\tut3 err\t:" + data);
+}
 
 // Start the UT3 server
 function onStart(data)
 {
+	console.log('Received start request.');
   var args = Config.arguments ;
 
   // If we specified a leve
@@ -38,22 +72,24 @@ function onStart(data)
     level = Config.level; 
 
   //Configure UT3 server parameters
-  var parameters = []; 
-  var password = generateGUID();
-  parameters.push("password="+password);
+  Config.parameters.password = generateGUID();
 
-  var paramString = generateArgString(level,parameters);
-  args.push(paramString);
+  args.push(Config.getParameters());
 
-  var p = child.exec(Config.ut3,args,execCB);
+	var ut3 = spawn(Config.exe(),args);
+	// reguster ccallbacks
+	ut3.on('exit',onUT3exit);
+	ut3.stderr.on('data',onUT3stderr);
+	ut3.stdout.on('data',onUT3stdout);
+
+	console.log('Started game server process');
 
   //Configure the return message
   var message = { 
-    password: password,
+    password: Config.password,
   }
 
-  socket.emit('started',message);
-  
+	socket.emit('started',message);
 }
 
 function onDisconnect(data)
@@ -65,7 +101,7 @@ function onDisconnect(data)
 function onConnect(data)
 {
 	console.log('Connected to ' + Config.url());
-	var connected=true;
+	connected=true;
 }
 
 // Start the UT3 server
@@ -76,10 +112,8 @@ function execCB (error,stdout,stderr)
 
 // Attempt to connect to the server
 function connect(){
-	var options = { port: Config.port };
 	console.log('Attempting to connect to ' + Config.url());
-	socket = new io.Socket(Config.url(),options);
-	socket.connect();
+	socket = new io.connect(Config.url());
 	socket.on('start',onStart);
 	socket.on('disconnect',onDisconnect);
 	socket.on('connect',onConnect);
