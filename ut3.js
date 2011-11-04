@@ -62,6 +62,7 @@ function onUT3stderr(data)
 function onStart(data)
 {
 	console.log('Received start request.');
+	console.log(data);
   var args = Config.arguments ;
 
   // If we specified a leve
